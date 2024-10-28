@@ -1,2 +1,2 @@
-# NextJSJohnSmilga
-Next JS Course
+# NextJS Course by John Smilga
+
