@@ -370,3 +370,300 @@ export default nextConfig;
 - Everytime we add remote images, we need to add it to a list of supported URL Patterns
 - To safely allow optimizing images, define a list of supported URL patterns in next.config.mjs. Be as specific as possible to prevent malicious usage.
 - restart dev server
+
+# Responsive Images
+- The fill prop allows your image to be sized by its parent element
+- sizes property helps the browser select the most appropriate image size to load based on the user's device and screen size, improving website performance and user experience.
+- Sizes property can also be a string that provides information about how wide the image will be at different breakpoints. 
+- The value of sizes will greatly affect performance for images using fill or which are styled to have a responsive size.
+
+```html
+ <Image src={tour.image} alt={tour.name}  fill  sizes='(max-width:768px) 100vw' priority className='object-cover rounded' />
+```
+
+## The sizes property serves two important purposes related to image performance:
+- First, the value of sizes is used by the browser to determine which size of the image to download, from next/image's automatically-generated source set. 
+- When the browser chooses, it does not yet know the size of the image on the page, so it selects an image that is the same size or larger than the viewport. 
+- The sizes property allows you to tell the browser that the image will actually be smaller than full screen.
+- If you don't specify a sizes value in an image with the fill property, a default value of 100vw (full screen width) is used.
+
+- Second, the sizes property configures how next/image automatically generates an image source set. 
+- If no sizes value is present, a small source set is generated, suitable for a fixed-size image.
+- If sizes is defined, a large source set is generated, suitable for a responsive image.
+- If the sizes property includes sizes such as 50vw, which represent a percentage of the viewport width, then the source set is trimmed to not include any values which are too small to ever be necessary.
+```ts
+return (
+  <div className='grid md:grid-cols-2 gap-8'>
+    {data.map((tour) => {
+      return (
+        <Link
+          key={tour.id}
+          href={`/tours/${tour.id}`}
+          className='hover:text-blue-500'
+        >
+          <div className='relative h-48 mb-2'>
+            <Image
+              src={tour.image}
+              alt={tour.name}
+              fill
+              sizes='33vw'
+              // sizes='(max-width:768px) 100vw,(max-width:1200px) 50vw, 33vw'
+              priority
+              className='object-cover rounded'
+            />
+          </div>
+          <h2>{tour.name}</h2>
+        </Link>
+      );
+    })}
+  </div>
+);
+```
+
+# Routing (continued)
+- We know that any folder we create under app folder becomes our URL segment
+- What if we want to have folder to have some logic and not be a route
+- Simply need to go with \_folder_name
+- We can also group the routes
+- Say we want to have a folder dashboard and then inside that we want to have separate folders for dashboard and profile
+- We cannot keep on doing \dashboard\dashboard\
+- So we can simply do this: name the folder with parentheses: (folder)
+- Also, if we want to catch the params we can use [folder_name]
+- create app/(dashboard)/auth/[sign-in]
+- Now when we navigate to locahost:3000/auth/sign-in, the text: 'sign-in' would be our params
+- Lets say we want to capture an array of params like this: localhost:3000/auth/sign-in/123/hello
+- Then we create a folder like this [...sign-in]
+- When we capture the params we get this: { 'sign-in': [ 'sign-in', '123', 'hello' ] }
+```ts
+const SignInPage = async ({ params }: { params: { 'sign-in': string } }) => {
+    debugger;
+    const test = await params;
+    console.log(test)
+
+    return <div>SignIn1Page</div>;
+};
+export default SignInPage;
+```
+- We can do something like params['sign-in'][1] to get the value of 123
+- These are all known as **Dynamic Routes**
+   1. [...folder] - Catch-all route segment
+   2. [[...folder]] Optional catch-all route segment (used by Clerk)
+
+# Server Actions
+- Modify stuff on the server directly from our component
+- We can directly do some server logic inside our code and place it inside our code
+- asynchronous server functions that can be called directly from your components.
+- What is the typical setup for server state mutations (create, update, delete)?
+1. We have endpoint on the server (api route on Next.js)
+2. We make request from the front-end (setup form, handle submission etc)
+- Next.js server actions allow you to mutate server state directly from within a React component by defining server-side logic alongside client-side interactions.
+
+## However these server actions follow some rules
+1. They must be async
+2. We need to add 'user server' in function body(only in React Server Component)
+3. We can use in React Client Component but only as an import
+
+```ts
+export default function ServerComponent() {
+  async function myAction(formData) {
+    'use server';
+    // access input values with formData
+    // formData.get('name')
+    // mutate data (server)
+    // revalidate cache
+  }
+
+  return <form action={myAction}>...</form>;
+}
+```
+- We can set them up separately also in separate files like this:
+```ts
+'use server';
+
+export async function myAction() {
+  // ...
+}
+```
+- then we can import them like this:
+```ts
+'use client';
+
+import { myAction } from './actions';
+
+export default function ClientComponent() {
+  return (
+    <form action={myAction}>
+      <button type='submit'>Add to Cart</button>
+    </form>
+  );
+}
+```
+# Actions Page - Setup
+- Example of a component with server action is as follows:
+
+```ts
+const createUser = async()=>{
+    'use server'
+    console.log('creating user...')
+
+}
+
+function Form() {
+    return (
+        <form action={createUser} className={formStyle}>
+            <h2 className='text-2xl capitalize mb-4'>create User</h2>
+            <input className={inputStyle} name='firstName' type="text" defaultValue='peter' required />
+            <input className={inputStyle} name='lastName' type="text" defaultValue='willy' required />
+            <button className={btnStyle} name='submit' type='submit'>Submit</button>
+        </form>
+    )
+}
+
+const formStyle = 'max-w-lg flex flex-col gap-y-4  shadow rounded p-8';
+const inputStyle = 'border shadow rounded py-2 px-3 text-gray-700';
+const btnStyle =
+    'bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded capitalize';
+
+
+export default Form
+
+```
+- In the above createUser is a server action method, but this is not a best practice
+- We want to create a separate folder called actions and annotate it with 'use server'
+- Then we can import it inside the client Component Form like this
+
+```ts
+'use client'
+
+import {createUserAction as createUser} from "@/app/utils/actions";
+
+function Form() {
+  return (
+          <form action={createUser} className={formStyle}>
+  <h2 className='text-2xl capitalize mb-4'>create User</h2>
+  <input className={inputStyle} name='firstName' type="text" defaultValue='peter' required />
+  <input className={inputStyle} name='lastName' type="text" defaultValue='willy' required />
+  <button className={btnStyle} name='submit' type='submit'>Submit</button>
+          </form>
+)
+}
+
+const formStyle = 'max-w-lg flex flex-col gap-y-4  shadow rounded p-8';
+const inputStyle = 'border shadow rounded py-2 px-3 text-gray-700';
+const btnStyle =
+        'bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded capitalize';
+
+
+export default Form
+
+
+//Create a folder called actions and export all actions within it
+'use server'
+export const createUserAction = async(formData:FormData)=>{
+  'use server'
+  const firstName = formData.get('firstName') as string;
+  const lastName = formData.get('lastName') as string;
+  const rawData = Object.fromEntries(formData);
+  console.log(rawData)
+};
+```
+
+# Backend logic inside Server Actions
+- We can save data, fetch data inside server actions as follows:
+```ts
+'use server'
+import { readFile, writeFile } from 'fs/promises';
+type User = {
+    id: string;
+    firstName: string;
+    lastName: string;
+};
+export const createUserAction = async(formData:FormData)=>{
+    'use server'
+    const firstName = formData.get('firstName') as string;
+    const lastName = formData.get('lastName') as string;
+    const newUser: User = { firstName, lastName, id: Date.now().toString() };
+    await saveUser(newUser);
+};
+
+export const fetchUsers = async (): Promise<User[]> => {
+    const result = await readFile('users.json', { encoding: 'utf8' });
+    const users = result ? JSON.parse(result) : [];
+    return users;
+};
+const saveUser = async (user: User) => {
+    const users = await fetchUsers();
+    users.push(user);
+    await writeFile('users.json', JSON.stringify(users));
+};
+
+```
+
+# Revalidate Cache and Redirect
+- Next.js aggressively caches all of our resources,so in the above code, even if we have saved data, nothing is reflected on the screen.
+- So to show data immediately, we have 2 options:
+1. Re-validate path:
+
+```ts
+import {revalidatePath} from "next/cache";
+import {redirect} from "next/navigation";
+
+export const createUserAction = async (formData: FormData) => {
+  'use server'
+  const firstName = formData.get('firstName') as string;
+  const lastName = formData.get('lastName') as string;
+  const newUser: User = {firstName, lastName, id: Date.now().toString()};
+  await saveUser(newUser);
+  revalidatePath('/actions');
+};
+```
+2. Redirects:
+```ts
+import {revalidatePath} from "next/cache";
+import {redirect} from "next/navigation";
+
+export const createUserAction = async (formData: FormData) => {
+  'use server'
+  const firstName = formData.get('firstName') as string;
+  const lastName = formData.get('lastName') as string;
+  const newUser: User = {firstName, lastName, id: Date.now().toString()};
+  await saveUser(newUser);
+  //revalidatePath('/actions');
+  redirect('/');
+};
+
+```
+- Please note we cannot put redirect inside a try-catch block
+```ts
+try {
+  await saveUser(newUser);
+  // will trigger error
+  redirect('/');
+} catch (error) {
+  console.error(error);
+}
+```
+
+# Pending State (UseFormStatus Hook)
+- The useFormStatus hook provides status information about the last form submission
+- The useFormStatus hook must be called from a component that is called from inside a <form/>
+- Essentially, we have to turn our submit button in the form into its own component
+- useFormStatus will only return status information for the parent
+- It will not return status information for any other <form> rendered in that same component or children component
+
+```tsx
+import { useFormStatus, useFormState } from 'react-dom';
+
+const SubmitButton = () => {
+  const { pending } = useFormStatus();
+  return (
+    <button type='submit' className={btnStyle} disabled={pending}>
+      {pending ? 'submitting...' : 'submit'}
+    </button>
+  );
+};
+```
+
+
+
+
