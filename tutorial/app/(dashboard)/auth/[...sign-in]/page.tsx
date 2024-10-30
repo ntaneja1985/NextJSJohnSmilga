@@ -1,6 +1,7 @@
-const SignInPage = async ({ params }: { params: { 'sign-in': string[] } }) => {
+type tParams = Promise<{ test: string[] }>
+const SignInPage = async ({ params }:{params:tParams}) => {
     debugger;
-    const test = await params;
+    const { test } = await params;
     console.log(test)
 
     return <div>SignIn1Page</div>;

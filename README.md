@@ -664,6 +664,281 @@ const SubmitButton = () => {
 };
 ```
 
+# useFormState hook (Now renamed to useActionState)
+- Works only with React client components
+- Used to display a message to the user whether the form submission was successful or not.
+- a Hook that allows you to update state based on the result of a form action.
+- Arguments to the useFormState include the following:
+  1. fn: This is the function to be called when the form is submitted or button pressed. When the function is called, it will receive the previous state of the form
+     (initially the initial State that we pass,subsequently its previous return value) as initial argument, followed by arguments that a form action usually receives.
+  2. initialState: The value you want the state to be initially. It can be any serializable value. This argument is ignored after the action is first invoked.
+  3. permalink(optional): A string containing the unique page URL that this form modifies.
 
+## Returns
+- This hook returns an array with 2 values:
+1. The current State
+2. A new action that we can pass as an action prop to our form component or formAction prop to any button component within the form.
+
+```tsx
+import {useActionState} from "react";
+
+const [message, formAction] = useActionState(createUser, null);
+return (
+        <form action={formAction} className={formStyle}>
+          {message && <p>{message}</p>}
+          ...
+        </form>
+);
+
+//Need to modify create User action
+export const createUser = async (prevState: any, formData: FormData) => {
+  // current state of the form
+  console.log(prevState);
+
+  const firstName = formData.get('firstName') as string;
+  const lastName = formData.get('lastName') as string;
+  const newUser: User = {firstName, lastName, id: Date.now().toString()};
+
+  try {
+    await saveUser(newUser);
+    revalidatePath('/actions');
+    // throw Error();
+    return 'user created successfully...';
+  } catch (error) {
+    console.error(error);
+    return 'failed to create user...';
+  }
+};
+```
+
+# How to pass value to an action from a server component
+- First approach is to hold a hidden value of id and pass it within formData during a submit to the server
+```tsx
+export const deleteUser = async (formData:FormData) => {
+  const id = formData.get('id') as string;
+  const users = await fetchUsers();
+  let newUsers = users.filter(u => u.id !== id);
+  await writeFile('users.json', JSON.stringify(newUsers));
+  revalidatePath('/actions');
+  //return 'user deleted successfully...';
+}
+
+//Usage of Delete User
+
+import {deleteUser} from "@/app/utils/actions";
+function DeleteButton({id}:{id:string}  ) {
+  return (
+          <form action={deleteUser}>
+            <input type="hidden" name="id" value={id} />
+            <button type="submit" className="bg-red-500 text-white text-xs rounded p-2">
+              Delete
+            </button>
+          </form>
+  )
+}
+export default DeleteButton
+
+```
+- Second approach is to pass value to the server with help of **bind method**
+- Problem with the first approach is that the value of Id is still part of HTML and can be accessed by hackers
+- An alternative to passing arguments as hidden input fields in the form (e.g. <input type="hidden" name="userId" value={userId} />) is to use the bind option.
+- With this approach, the value is not part of the rendered HTML and will not be encoded.
+- bind works in both Server and Client Components. It also supports progressive enhancement.
+```tsx
+//Here it is not necessary for us to have just id. We can even have the entire object
+export const removeUser = async (id: string, formData: FormData) => {
+  const name = formData.get('name') as string;
+  console.log(name);
+
+  const users = await fetchUsers();
+  const updatedUsers = users.filter((user) => user.id !== id);
+  await writeFile('users.json', JSON.stringify(updatedUsers));
+  revalidatePath('/actions');
+};
+
+//Usage
+import { deleteUser, removeUser } from '@/utils/actions';
+
+function DeleteButton({ id }: { id: string }) {
+    //We can even pass the entire object here and not just id
+  const removeUserWithId = removeUser.bind(null, id);
+  return (
+          <form action={removeUserWithId}>
+            <input type='hidden' name='name' value='shakeAndBake' />
+            <button
+                    type='submit'
+                    className='bg-red-500 text-white text-xs rounded p-2'
+            >
+              delete
+            </button>
+          </form>
+  );
+}
+export default DeleteButton;
+```
+# Route Handlers in Next.js
+- With arrival of server actions there is less need for route handlers
+- Allow us to create serverless functions in our application
+- We don't have to set up server from scratch
+- We can quickly set up endpoints in our application where we can handle server logic and communicate from front end to the endpoint
+- Route Handlers allow you to create custom request handlers for a given route using the Web Request and Response APIs.
+1. in app create folder "api"
+2. in there create folder "users" with route.ts file
+- The following HTTP methods are supported: GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS. If an unsupported method is called, Next.js will return a 405 Method Not Allowed response.
+- In addition to supporting native Request and Response. Next.js extends them with NextRequest and NextResponse to provide convenient helpers for advanced use cases.
+## GET Request
+```tsx
+import {fetchUsers,saveUser} from "@/app/utils/actions";
+import { NextRequest, NextResponse } from 'next/server';
+
+export const GET = async (req:Request) => {
+    const {searchParams} = new URL(req.url);
+    //console.log(req);
+    //console.log(searchParams)
+    console.log('Search Params = '+ searchParams.get('id'));
+    const users = await fetchUsers();
+    return Response.json({ users });
+};
+```
+### NextRequest and NextResponse are just wrappers around the Request/Response objects
+
+```tsx
+import {fetchUsers,saveUser} from "@/app/utils/actions";
+import { NextRequest, NextResponse } from 'next/server';
+
+export const GET = async (req:NextRequest) => {
+  const {searchParams} = new URL(req.url);
+  //console.log(req);
+  //console.log(searchParams)
+  console.log('Search Params = '+ searchParams.get('id'));
+  console.log('Search Params using Next Request = '+ req.nextUrl.searchParams.get('id'))
+
+
+  const users = await fetchUsers();
+  //Here we need to provide absolute URL, so we construct it using the URL constructor
+  return NextResponse.redirect(new URL('/',req.url));
+};
+```
+
+## POST Request
+```tsx
+export const POST = async (req:NextRequest) => {
+  const user = await req.json();
+  console.log(user);
+  const newUser = { ...user, id: Date.now().toString() };
+  await saveUser(newUser);
+  return NextResponse.redirect(new URL('/actions',req.url));
+}
+```
+
+# Middleware in Next.js
+- Allows us to do something before request is completed
+- Middleware in Next.js is a piece of code that allows you to perform actions before a request is completed and modify the response accordingly.
+- create middleware.ts in the root
+- by default will be invoked for every route in your project
+- We can also have matchers to invoke middleware functions for specific routes
+
+```tsx
+
+export function middleware(request) {
+  return Response.json({ msg: 'hello there' });
+}
+
+export const config = {
+  matcher: '/about',
+};
+
+import { NextResponse } from 'next/server';
+
+// This function can be marked `async` if using `await` inside
+export function middleware(request) {
+  return NextResponse.redirect(new URL('/', request.url));
+}
+
+// See "Matching Paths" below to learn more
+export const config = {
+  matcher: ['/about/:path*', '/tours/:path*'],
+};
+
+
+
+```
+# Local Build
+We can build the project using the following commands
+
+```shell
+npm run build
+npm start
+```
+- Notice that when we build we see 2 kinds of operators in the console (o,f)
+- o --> means the page is rendered as static content
+- f --> means the page is server-rendered on demand
+- Everything is quite fast
+- Static pages are built at build time
+- Server built everything at build time and cached everything
+- Makes our load times faster
+
+# Caching and Routing in Next.js
+- In Next.js, the App Router provides a way to handle routing in your application. 
+- Unlike traditional single-page applications where routing is managed client-side, Next.js enables both server-side and static generation of pages.
+- File-Based Routing: Pages are created by adding files to the pages directory. The file name determines the route.
+- Dynamic Routing: Supports dynamic routes using brackets, e.g., pages/posts/[id].js matches /posts/1, /posts/2, etc.
+- API Routes: Define backend endpoints within the pages/api directory.
+- SSR and SSG: Supports Server-Side Rendering (SSR) and Static Site Generation (SSG) to optimize performance and SEO.
+- Middleware: Allows running custom code before a request is completed, useful for authentication, logging, and other middleware tasks.
+
+```shell
+pages/
+  index.js       # Matches the route '/'
+  about.js       # Matches the route '/about'
+  posts/
+    [id].js      # Matches the dynamic route '/posts/:id'
+
+```
+
+- By leveraging the App Router, Next.js combines the best of both server-side and client-side rendering, providing a powerful and flexible framework for building web applications.
+
+# Caching in Next.js
+- In Next.js, the App Router provides several caching mechanisms to improve performance and reduce server load
+- **Request Memoization**: This automatically caches the return values of functions, so if the same function is called multiple times with the same arguments, it only executes once
+- Data Cache: Stores data fetched from APIs or databases, allowing it to be reused across user requests and deployments
+- Full Route Cache: Caches the HTML and RSC (React Server Components) payload on the server, reducing rendering costs and improving performance
+- Router Cache: Caches the RSC payload on the client, reducing server requests on navigation
+- By default, Next.js caches as much as possible to improve performance and reduce costs
+
+# How to modify caching behaviour
+- For API routes, you can use the Cache-Control header to control the caching behavior. Here's an example:
+```js
+// pages/api/data.js
+//s-maxage=10 means the data will be cached by the CDN for 10 seconds.
+//stale-while-revalidate=59 means the cached data can be served stale for 59 seconds while it is revalidated in the background.
+export default function handler(req, res) {
+  res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=59');
+  res.status(200).json({ data: 'This is some cached data' });
+}
+
+```
+- For page routes, you can use getStaticProps with revalidate to enable Incremental Static Regeneration (ISR), which allows you to update static content after the page is built:
+```js
+// pages/index.js
+//getStaticProps fetches data and returns it as props to the component.
+//revalidate: 10 means the page will be regenerated at most once every 10 seconds, ensuring that the content stays up-to-date.
+export default function Home({ data }) {
+  return <div>{data}</div>;
+}
+
+export async function getStaticProps() {
+  const res = await fetch('https://api.example.com/data');
+  const data = await res.json();
+
+  return {
+    props: {
+      data
+    },
+    revalidate: 10 // Revalidate the page every 10 seconds
+  };
+}
+
+```
 
 

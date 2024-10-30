@@ -12,7 +12,12 @@ type Tour = {
 }
 
 const fetchTours = async () => {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    console.log('########')
+    console.log('Fetching Tours!!!!!!')
+    console.log('########')
+
+
+    await new Promise((resolve) => setTimeout(resolve, 3000));
     const response = await axios.get(url);
     const tours: Tour[] = response.data;
     return tours;

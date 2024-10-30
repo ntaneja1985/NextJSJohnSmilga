@@ -1,9 +1,9 @@
 import Image from "next/image";
 import mapsImg from '@/images/maps.jpg'
 const url = 'https://www.course-api.com/images/tours/tour-1.jpeg';
-
-const page = async ({ params }:{params:string}) => {
-    const {id} = await params;
+type tParams = Promise<{ id: string }>;
+const page = async ({ params }:{params:tParams}) => {
+    const {id} =  await params;
 
     return (
         <div>
