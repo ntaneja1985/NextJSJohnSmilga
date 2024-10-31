@@ -13,3 +13,42 @@
  - Import the icons inside the Navbar
  - Copy the CSS for the custom theme we will use and set it up in globals.css
  - Set up the Navbar in layout.tsx
+
+# asChild property in Radix UI
+- in some component libraries like Radix UI, 
+the asChild prop is used to pass the rendered component as a child of another component,
+essentially allowing you to wrap an element with another component while retaining its original semantics and properties.
+
+```js
+import { Button } from '@radix-ui/react-button';
+
+function App() {
+  return (
+    <Button asChild>
+      <a href="https://example.com">Click me</a>
+    </Button>
+  );
+}
+
+export default App;
+
+```
+
+- In this example, the Button component from Radix UI will render an <a> (anchor) element with all the button styles and behaviors. 
+- The asChild property allows you to wrap any element with the Button component, so you can use the anchor tag as a button and apply button-specific styles and behaviors to it.
+
+### Dropdown Menu in Radix UI
+- It has the following basic structure
+```js
+//Here the trigger is usually some button or Link
+//Dropdown menu content is actually the list of items in the dropdown
+<DropdownMenu>
+    <DropdownMenuTrigger></DropdownMenuTrigger>
+    <DropdownMenuContent></DropdownMenuContent>
+</DropdownMenu>
+```
+- In Tailwind if we want to add custom values of pixels we can do it like this: max-w-[100px]
+
+# Clerk Authentication
+
+
