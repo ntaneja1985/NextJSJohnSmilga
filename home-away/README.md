@@ -50,5 +50,299 @@ export default App;
 - In Tailwind if we want to add custom values of pixels we can do it like this: max-w-[100px]
 
 # Clerk Authentication
+ - Clerk is a user authentication and management service that integrates seamlessly with various front-end frameworks, including Next.js.
+ - It offers a set of tools and components to manage user sign-ups, log-ins, profile management, and access control. 
+ - Handles user sign-ups, log-ins, and multifactor authentication (MFA).
+ - Offers user profile management, including updating user information and managing passwords.
+ -  Implements **role-based access control (RBAC)** to manage user permissions and access levels.
+ - Clerk provides customizable components like SignIn, SignUp, UserButton, and UserProfile to make it easier to integrate authentication into your application. 
+ - To integrate Clerk with Next.js use the following steps:
+ 1. Set up an account with Clerk
+ 2. Get the api keys from clerk
+ 3. Setup up .env.local file and paste the api keys inside it
+ 4. Anything starting with NEXT_PUBLIC is accessible to the browser, while rest of it is not.
+ 5. Setup middleware.ts file to set up protected routes with clerk
+```js
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 
+const isProtectedRoute = createRouteMatcher([
+    '/bookings(.*)',
+    '/checkout(.*)',
+    '/favorites(.*)',
+    '/profile(.*)',
+    '/rentals(.*)',
+    '/reviews(.*)'
+]);
 
+export default clerkMiddleware(async(auth, req) => {
+    if (isProtectedRoute(req))  await auth.protect();
+});
+
+export const config = {
+    matcher: ['/((?!.*\\..*|_next).*)', '/', '/(api|trpc)(.*)'],
+};
+```
+- In the above, note that it has a route matcher and a list of protected routes.
+- If the user is not logged in and he tries to go to a protected page, he is redirected to a clerk sign-in page
+- In Layout.tsx we need to wrap everything inside Clerk Provider
+- We need to use Clerk control components to manage authenticated and unauthenticated content.
+- Add components like SignIn, SignUp, UserButton, and UserProfile to handle user authentication and management.
+
+# Creating Custom Form Components
+- Rather than having one form with multiple inputs and submit buttons, we can separate out the form component into reusable form control components
+- We can have a FormInput,SubmitButton and FormContainer components
+- Reusable Form Input component
+```jsx
+import { Label } from '../ui/label';
+import { Input } from '../ui/input';
+
+type FormInputProps = {
+  name: string;
+  type: string;
+  label?: string;
+  defaultValue?: string;
+  placeholder?: string;
+};
+
+function FormInput({
+  label,
+  name,
+  type,
+  defaultValue,
+  placeholder,
+}: FormInputProps) {
+  return (
+    <div className='mb-2'>
+      <Label htmlFor={name} className='capitalize'>
+        {label || name}
+      </Label>
+      <Input
+        id={name}
+        name={name}
+        type={type}
+        defaultValue={defaultValue}
+        placeholder={placeholder}
+        required
+      />
+    </div>
+  );
+}
+
+export default FormInput;
+```
+- Reusable submit button (here we make use of useFormStatus hook to know if the form is submitting or it has already submitted)
+```js
+'use client';
+import { ReloadIcon } from '@radix-ui/react-icons';
+import { useFormStatus } from 'react-dom';
+import { Button } from '@/components/ui/button';
+
+type SubmitButtonProps = {
+  className?: string;
+  text?: string;
+};
+
+export function SubmitButton({
+  className = '',
+  text = 'submit',
+}: SubmitButtonProps) {
+  const { pending } = useFormStatus();
+  return (
+    <Button
+      type='submit'
+      disabled={pending}
+      className={`capitalize ${className}`}
+      size='lg'
+    >
+      {pending ? (
+        <>
+          <ReloadIcon className='mr-2 h-4 w-4 animate-spin' />
+          Please wait...
+        </>
+      ) : (
+        text
+      )}
+    </Button>
+  );
+}
+```
+- Reusable Form Container component(Here we use useActionState hook to determine if the form was submitted successfully or not or there was some error.)
+````js
+'use client';
+
+import { useActionState } from 'react';
+import React, { useEffect } from 'react';
+import { useToast } from '@/hooks/use-toast';
+import { actionFunction } from '@/utils/types';
+
+const initialState = {
+    message: '',
+};
+
+function FormContainer({action, children}: {action: actionFunction,children: React.ReactNode }) {
+    const [state, formAction] = useActionState(action,initialState);
+    const { toast } = useToast();
+    useEffect(() => {
+        if (state.message) {
+            toast({ description: state.message, duration:2000  });
+        }
+    }, [state]);
+    return <form action={formAction}>{children}</form>;
+}
+export default FormContainer;
+````
+
+# Zod Library
+- Zod is a JavaScript library for building schemas and validating data, providing type safety and error handling.
+- We can define a zod schema like this
+```js
+import * as z from 'zod';
+import { ZodSchema } from 'zod';
+
+export const profileSchema = z.object({
+  // firstName: z.string().max(5, { message: 'max length is 5' }),
+  firstName: z.string(),
+  lastName: z.string(),
+  username: z.string(),
+});
+```
+- Then, we can use Zod validation like this:
+````js
+'use server';
+
+import { profileSchema } from './schemas';
+
+export const createProfileAction = async (
+  prevState: any,
+  formData: FormData
+) => {
+  try {
+    const rawData = Object.fromEntries(formData);
+    const validatedFields = profileSchema.parse(rawData);
+    console.log(validatedFields);
+    return { message: 'Profile Created' };
+  } catch (error) {
+    console.log(error);
+    return { message: 'there was an error...' };
+  }
+};
+````
+# Prisma setup
+- Prisma is an open-source, next-generation Object-Relational Mapping (ORM) tool designed to simplify database interactions in Node.js and TypeScript applications
+- Prisma consists of:
+1. Prisma Client: An auto-generated, type-safe query builder that allows you to interact with your database using JavaScript or TypeScript.
+2. Prisma Migrate: A migration system that helps you manage and version-control your database schema.
+3. Prisma Studio: A graphical user interface (GUI) for viewing and editing data in your database
+4. Data Modeling: Prisma uses a Schema Definition Language (SDL) to define your data models, making it easy to work with relational databases and MongoDB
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Post {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String?
+  published Boolean  @default(false)
+  author    User?    @relation(fields: [authorId], references: [id])
+  authorId  Int?
+}
+
+model User {
+  id    Int    @id @default(autoincrement())
+  email String @unique
+  name  String?
+  posts Post[]
+}
+
+```
+- In the above, the datasource block defines the db connection
+- generator block generates the prisma client
+- model block defines the application's data models.
+
+# Fetch Profile using Prisma ORM 
+```js
+export const fetchProfile = async() =>{
+    const user = await getAuthUser();
+    const profile = await db.profile.findUnique({
+        where:{
+            clerkId: user.id,
+        }
+    })
+    if(!profile) redirect('/profile/create');
+    return profile;
+}
+```
+## Projection using Prisma
+
+```js
+export const updateProfileAction
+    = async(prevState:{ message:string | null },formData:FormData):Promise<{message:string}> =>{
+
+    const user = await getAuthUser();
+    try {
+        const rawData = Object.fromEntries(formData);
+        const validatedFields = validateWithZodSchema(profileSchema,rawData);
+        await db.profile.update({
+            where: {
+                clerkId: user.id,
+            },
+            data: validatedFields,
+        });
+        revalidatePath('/profile');
+        return { message: 'Profile updated successfully' };
+    }
+    catch(err){
+        return renderError(err);
+    }
+```
+
+## Using Zod Schema Safe Parse Method
+
+```js
+export const profileSchema = z.object({
+    // firstName: z.string().max(5, { message: 'max length is 5' }),
+    firstName: z.string().min(2,{ message: 'first Name min length should be 2' }),
+    lastName: z.string().min(2,{ message: 'last Name min length should be 2' }),
+    username: z.string().min(2,{ message: 'user Name min length should be 2' }),
+});
+
+export function validateWithZodSchema<T>(schema: ZodSchema<T>,data:unknown):T{
+    {
+        const result = schema.safeParse(data);
+        if(!result.success)
+        {
+            const errors = result.error.errors.map((err)=>err.message);
+            throw new Error(errors.join(','));
+        }
+        return result.data;
+    }
+```
+- In the above code, we use generics to pass in a schema and safe Parse it, get the errors back and display it back to the user
+
+## Generic Image Input
+
+```js
+import React from 'react'
+import {Label} from "../ui/label";
+import {Input} from "../ui/input";
+
+function ImageInput() {
+    const name = 'image';
+    return (
+        <div className='mb-2'>
+            <Label htmlFor={name} className='capitalize'>Image</Label>
+            <Input id={name} name={name} type='file' required accept='image/*' className='max-w-xs' />
+        </div>
+    )
+}
+
+export default ImageInput
+
+```
