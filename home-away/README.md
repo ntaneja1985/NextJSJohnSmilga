@@ -346,3 +346,132 @@ function ImageInput() {
 export default ImageInput
 
 ```
+- To upload a file we need to create a Image Input Container like this:
+```js
+'use client';
+import { useState } from 'react';
+import Image from 'next/image';
+import { Button } from '../ui/button';
+import FormContainer from './FormContainer';
+import ImageInput from './ImageInput';
+import { SubmitButton } from './Buttons';
+import { type actionFunction } from '@/utils/types';
+import { LuUser2 } from 'react-icons/lu';
+
+type ImageInputContainerProps = {
+    image: string;
+    name: string;
+    action: actionFunction;
+    text: string;
+    children?: React.ReactNode;
+};
+
+
+function ImageInputContainer(props: ImageInputContainerProps) {
+    const {image,name, action,text} = props;
+    const [isUpdateFormVisible,setUpdateFormVisible] = useState<boolean>(false);
+    const userIcon = (
+        <LuUser2 className='w-24 h-24 bg-primary rounded-md text-white mb-4' />
+    );
+    return (
+        <div>
+            {image ? (
+                <Image src={image}
+                       alt={name}
+                       className='rounded-md object-cover mb-4 w-24 h-24'
+                       width={100}
+                       height={100}
+                />
+            ):(
+                userIcon
+            )}
+            <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setUpdateFormVisible((prev) => !prev)}
+            >
+                {text}
+            </Button>
+            {isUpdateFormVisible && (
+                <div className='max-w-lg mt-4'>
+                    <FormContainer action={action}>
+                        {props.children}
+                        <ImageInput />
+                        <SubmitButton size='sm' />
+                    </FormContainer>
+                </div>
+            )}
+        </div>
+    )
+}
+
+export default ImageInputContainer
+
+```
+- How to validate an image input
+- We need to do checks like check the file size, check if the file types are supported like this
+
+```js
+function  validateFile(){
+    const maxUploadSize = 1024 * 1024;
+    const acceptedFileTypes = ['image/'];
+    return z.instanceof(File).refine((file)=>{
+        return !file || file.size <= maxUploadSize;
+    },'File size must be less than 1 MB').refine((file)=>{
+        return !file || acceptedFileTypes.some((type)=> file.type.startsWith(type));
+    },'File must be an image')
+}
+```
+- In the above **refine** is a cool zod feature which takes 2 arguments one a function to validate and second one the error message to be shown if the function returns false
+-  As you can see the first refine function checks for file size and returns true or false on the basis of it.
+
+# Supabase Buckets to upload the file
+- We make use of supabase buckets to upload the file
+```js
+//Code to upload the image to supabase bucket
+const bucket = 'temp-home-away'
+
+const url = process.env.SUPABASE_URL as string;
+const key = process.env.SUPABASE_KEY as string;
+const supabase = createClient(url,key);
+
+export const uploadImage = async (image: File) => {
+    const timestamp  = Date.now();
+    const newName = `${timestamp}-${image.name}`;
+    const {data} = await supabase.storage
+        .from(bucket)
+        .upload(newName, image,{cacheControl:'3600'});
+    if(!data) throw new Error('Image upload failed');
+    return supabase.storage.from(bucket).getPublicUrl(newName).data.publicUrl;
+}
+
+//Code to update the profile image which calls the upload image and also updates prisma with the image public URL
+export const updateProfileImageAction = async (
+    prevState: { message:string | null },
+formData: FormData
+): Promise<{ message: string }> => {
+    const user = await getAuthUser();
+    try {
+        const image = formData.get('image') as File;
+        const validatedFields = validateWithZodSchema(imageSchema, {image});
+        const fullPath = await uploadImage(validatedFields.image);
+        await db.profile.update({
+            where:{
+                clerkId: user.id
+            },
+            data: {
+                profileImage: fullPath,
+            }
+        })
+        revalidatePath('/profile');
+        return {message: 'Profile image updated successfully'};
+    }
+    catch (error){
+        return renderError(error);
+    }
+};
+```
+# Create a Property
+- First we need to update the schema in prisma and run npx prisma db push to create the collection in MongoDB
+- Then we need to create a form to add the property
+- We also need to add a schema in Zod to validate the above create property form
