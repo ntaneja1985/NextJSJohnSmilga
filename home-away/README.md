@@ -475,3 +475,450 @@ formData: FormData
 - First we need to update the schema in prisma and run npx prisma db push to create the collection in MongoDB
 - Then we need to create a form to add the property
 - We also need to add a schema in Zod to validate the above create property form
+
+# Fetch Properties based on Search Params
+- We will create a properties list and within it display a property card component
+- The property card will have other things inside it like an image of the property, price of the property and an ability to favorite the property
+- So first we need to fetch the properties
+- Properties will be fetched on the basis of category and search term so provided in the NavSearch component
+- Code to fetch the properties will be the following:
+```js
+export const fetchProperties = async ({
+  search = '',
+  category,
+}: {
+  search?: string;
+  category?: string;
+}) => {
+  const properties = await db.property.findMany({
+    where: {
+      category,
+      OR: [
+        { name: { contains: search, mode: 'insensitive' } },
+        { tagline: { contains: search, mode: 'insensitive' } },
+      ],
+    },
+    select: {
+      id: true,
+      name: true,
+      tagline: true,
+      country: true,
+      image: true,
+      price: true,
+    },
+  });
+  return properties;
+};
+```
+# Integrating the Properties List in the Home page
+- So in the homepage we will setup the following
+1. List of categories (like caravan, cabin, cottage, warehouse etc.)
+2. Empty List component
+3. Properties List component
+4. Container for the Properties List
+
+- We will also setup search params in the homepage like this:
+```js
+import CategoriesList from '@/components/home/CategoriesList';
+import PropertiesContainer from '@/components/home/PropertiesContainer';
+
+function HomePage({
+  searchParams,
+}: {
+  searchParams: { category?: string; search?: string };
+}) {
+  // console.log(searchParams);
+
+  return (
+    <section>
+      <CategoriesList
+        category={searchParams?.category}
+        search={searchParams?.search}
+      />
+      <PropertiesContainer
+        category={searchParams?.category}
+        search={searchParams?.search}
+      />
+    </section>
+  );
+}
+export default HomePage;
+```
+- The categories list is fixed and is retrieved from utils\categories.ts file
+- We will set up the CSS of the categories to display the category as active when it is selected
+- The Empty list is simple, if there are no properties found, we will display a message that No properties found
+- Properties container is also simple, it will first fetch the properties
+- If no properties are found, it will display the empty list or if there are properties, then it will pass them along to Properties List component
+- Properties List will just iterate over and display a list of Property Card components.
+
+# Property Card Component
+- The Property card component will display a Property Card Props which are defined as follows:
+
+```js
+export type PropertyCardProps = {
+    image: string;
+    id: string;
+    name: string;
+    tagline: string;
+    country: string;
+    price: number;
+};
+```
+- The property card component will have several components inside it
+1. Property Rating component
+2. Favorite Toggle Form component
+3. Country and Flag Name component
+
+- Property rating component will have 2 props: propertyId and inPage
+- The inPage property means whether it is displayed in the property details page or list of properties.
+- Based on this prop, we will toggle the display of this component accordingly.
+
+## Usage of React Suspense in Homepage
+- The properties list is rather long and may take time to fetch so we need to display fallback UI while the page is loading
+- For this we need to use React Suspense on Homepage like this
+```js
+import CategoriesList from '@/components/home/CategoriesList';
+import PropertiesContainer from '@/components/home/PropertiesContainer';
+import LoadingCards from '@/components/card/LoadingCards';
+import { Suspense } from 'react';
+function HomePage({
+                      searchParams,
+                  }: {
+    searchParams: { category?: string; search?: string };
+}) {
+    return (
+        <section>
+            <CategoriesList
+                category={searchParams?.category}
+                search={searchParams?.search}
+            />
+            <Suspense fallback={<LoadingCards />}>
+                <PropertiesContainer
+                    category={searchParams?.category}
+                    search={searchParams?.search}
+                />
+            </Suspense>
+        </section>
+    );
+}
+export default HomePage;
+```
+
+# use Debounce in NavSearch Component
+ - useDebounce is a custom hook in React that delays the updating of a value until a specified time has passed since it was last changed. 
+ - This is especially useful for scenarios where you want to limit the rate of certain operations, such as API calls during search input typing, to improve performance and reduce unnecessary load.
+ - Helps reduce the frequency of heavy operations like API requests, leading to better performance.
+ - Improves user experience by preventing immediate reactions to fast, successive inputs.
+```js
+'use client';
+import { Input } from '../ui/input';
+import { useSearchParams, usePathname, useRouter } from 'next/navigation';
+import { useDebouncedCallback } from 'use-debounce';
+import { useState, useEffect } from 'react';
+
+function NavSearch() {
+  const searchParams = useSearchParams();
+
+  const pathname = usePathname();
+  const { replace } = useRouter();
+  const [search, setSearch] = useState(
+    searchParams.get('search')?.toString() || ''
+  );
+  const handleSearch = useDebouncedCallback((value: string) => {
+    const params = new URLSearchParams(searchParams);
+    if (value) {
+      params.set('search', value);
+    } else {
+      params.delete('search');
+    }
+    replace(`${pathname}?${params.toString()}`);
+  }, 300);
+  useEffect(() => {
+    if (!searchParams.get('search')) {
+      setSearch('');
+    }
+  }, [searchParams.get('search')]);
+  return (
+    <Input
+      type='search'
+      placeholder='find a property...'
+      className='max-w-xs dark:bg-muted '
+      onChange={(e) => {
+        setSearch(e.target.value);
+        handleSearch(e.target.value);
+      }}
+      value={search}
+    />
+  );
+}
+export default NavSearch;
+```
+- Above you can see we install useDebounce library
+- Then we use the useDebouncedCallback to execute the search based on the search term using a delay
+- We also make use of useEffect to trigger a search state change and re-render the component if the search term has changed.
+- But notice in the DebouncedCallback we are introducing a delay of 300 milliseconds.
+
+# Setting up Favorites
+- A user can have many favorites and a property can also be a favorite of many people.
+- So we need to set up a favorite table, where we will keep track of this
+- We will add a link to profile table and property table.
+- This link will be through profileId(which is clerkId) to the Profile table
+- Link will also be with Property Table(through propertyId) in the property table.
+
+```prisma
+
+model Profile {
+favorites    Favorite[]
+}
+
+model Property {
+favorites    Favorite[]
+}
+
+model Favorite {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile   Profile  @relation(fields: [profileId], references: [clerkId], onDelete: Cascade)
+  profileId String
+
+  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId String
+
+}
+```
+- If the user is not logged and goes to the homepage and clicks on the Favorite button, he is shown a modal popup
+- This SignIn modal popup comes from clerk component
+```js
+import { SignInButton } from '@clerk/nextjs';
+import { FaRegHeart, FaHeart } from 'react-icons/fa';
+
+export const CardSignInButton = () => {
+  return (
+    <SignInButton mode='modal'>
+      <Button
+        type='button'
+        size='icon'
+        variant='outline'
+        className='p-2 cursor-pointer'
+        asChild
+      >
+        <FaRegHeart />
+      </Button>
+    </SignInButton>
+  );
+};
+```
+- We also need to know if the particular property has already been favorited by the user or not
+```js
+export const fetchFavoriteId = async ({
+  propertyId,
+}: {
+  propertyId: string;
+}) => {
+  const user = await getAuthUser();
+  const favorite = await db.favorite.findFirst({
+    where: {
+      propertyId,
+      profileId: user.id,
+    },
+    select: {
+      id: true,
+    },
+  });
+  return favorite?.id || null;
+};
+export const toggleFavoriteAction = async () => {
+  return { message: 'toggle favorite' };
+};
+```
+- So the code for Favorite Toggle button is as follows:
+```js
+import { auth } from '@clerk/nextjs/server';
+import { CardSignInButton } from '../form/Buttons';
+import { fetchFavoriteId } from '@/utils/actions';
+import FavoriteToggleForm from './FavoriteToggleForm';
+async function FavoriteToggleButton({ propertyId }: { propertyId: string }) {
+  const { userId } = auth();
+  if (!userId) return <CardSignInButton />;
+  const favoriteId = await fetchFavoriteId({ propertyId });
+
+  return <FavoriteToggleForm favoriteId={favoriteId} propertyId={propertyId} />;
+}
+export default FavoriteToggleButton;
+```
+
+- When the user clicks on Favorite button, we need to go and check if the property has been favorited or not, 
+- If yes, we remove it from list of favorites and if not, we add it to the favorite table.
+- So we need to have a Card Submit Button
+```js
+export const CardSubmitButton = ({ isFavorite }: { isFavorite: boolean }) => {
+  const { pending } = useFormStatus();
+  return (
+    <Button
+      type='submit'
+      size='icon'
+      variant='outline'
+      className=' p-2 cursor-pointer'
+    >
+      {pending ? (
+        <ReloadIcon className=' animate-spin' />
+      ) : isFavorite ? (
+        <FaHeart />
+      ) : (
+        <FaRegHeart />
+      )}
+    </Button>
+  );
+};
+```
+
+- Finally, we need to put all this logic together in a FavoriteToggleForm like this
+
+```js
+'use client';
+
+import { usePathname } from 'next/navigation';
+import FormContainer from '../form/FormContainer';
+import { toggleFavoriteAction } from '@/utils/actions';
+import { CardSubmitButton } from '../form/Buttons';
+
+type FavoriteToggleFormProps = {
+  propertyId: string;
+  favoriteId: string | null;
+};
+
+function FavoriteToggleForm({
+  propertyId,
+  favoriteId,
+}: FavoriteToggleFormProps) {
+  const pathname = usePathname();
+  const toggleAction = toggleFavoriteAction.bind(null, {
+    propertyId,
+    favoriteId,
+    pathname,
+  });
+  return (
+    <FormContainer action={toggleAction}>
+      <CardSubmitButton isFavorite={favoriteId ? true : false} />
+    </FormContainer>
+  );
+}
+export default FavoriteToggleForm;
+```
+
+- The code for toggleFavoriteAction will be:
+```js
+export const toggleFavoriteAction = async (prevState: {
+  propertyId: string;
+  favoriteId: string | null;
+  pathname: string;
+}) => {
+  const user = await getAuthUser();
+  const { propertyId, favoriteId, pathname } = prevState;
+  try {
+    if (favoriteId) {
+      await db.favorite.delete({
+        where: {
+          id: favoriteId,
+        },
+      });
+    } else {
+      await db.favorite.create({
+        data: {
+          propertyId,
+          profileId: user.id,
+        },
+      });
+    }
+    revalidatePath(pathname);
+    return { message: favoriteId ? 'Removed from Faves' : 'Added to Faves' };
+  } catch (error) {
+    return renderError(error);
+  }
+};
+```
+
+# Favorites Page
+- So in a favorites page, we need to fetch the list of favorites for a user
+- We need to go to the favorite table, get the propertyIds for the logged in user and then use them to fetch the property details
+- In prisma we can do a projection over the related entity like this
+```prisma
+const favorites = await db.favorite.findMany({
+    where: {
+      profileId: user.id,
+    },
+    select: {
+      **property: {**
+        select: {
+          id: true,
+          name: true,
+          tagline: true,
+          price: true,
+          country: true,
+          image: true,
+        },
+      },
+    },
+  });
+```
+- So the fetch favorites function will look like this
+```js
+export const fetchFavorites = async () => {
+  const user = await getAuthUser();
+  const favorites = await db.favorite.findMany({
+    where: {
+      profileId: user.id,
+    },
+    select: {
+      property: {
+        select: {
+          id: true,
+          name: true,
+          tagline: true,
+          price: true,
+          country: true,
+          image: true,
+        },
+      },
+    },
+  });
+  return favorites.map((favorite) => favorite.property);
+};
+```
+# Favorites page
+- Inside the app folder, go to favorites folder and create a loading.tsx file.
+- This loading UI will display when the page is loading
+- Favorites page code is simple:
+```js
+import EmptyList from '@/components/home/EmptyList';
+import PropertiesList from '@/components/home/PropertiesList';
+import { fetchFavorites } from '@/utils/actions';
+
+async function FavoritesPage() {
+  const favorites = await fetchFavorites();
+
+  if (favorites.length === 0) {
+    return <EmptyList />;
+  }
+
+  return <PropertiesList properties={favorites} />;
+}
+export default FavoritesPage;
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
