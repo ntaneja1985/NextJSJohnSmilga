@@ -19,7 +19,8 @@ function NavSearch() {
         } else {
             params.delete('search');
         }
-        const newPath = `${pathname}?${params.toString()}`;
+        //const newPath = `${pathname}?${params.toString()}`;
+        const newPath = `/?${params.toString()}`
         console.log("New Path = " + newPath)
         replace(newPath);
     },500)

@@ -909,8 +909,362 @@ export default FavoritesPage;
 ```
 
 
+# Property Details Page
+- First step is to fetch the property details when the user navigates to a particular property
+- This is done using prisma in actions.ts like this:
+```js
+export const fetchPropertyDetails = (id: string) => {
+  return db.property.findUnique({
+    where: {
+      id,
+    },
+    include: {
+      profile: true,
+    },
+  });
+};
+```
 
+- Next step is to identify the components on the page
+- We have the following components on the Property Details Page
+1. Breadcrumb component
+2. Share button with Share to Twitter, LinkedIn etc.
+3. Image Container
+4. Calendar
+5. Property Details like beds,baths,guests etc.
+6. UserInfo like who is hosting this property
+7. Description of the Property
+8. Amenities Available
+9. Map of the Property
 
+- For Breadcrumbs component we have the following code:
+```js
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+
+function BreadCrumbs({ name }: { name: string }) {
+  return (
+    <Breadcrumb>
+      <BreadcrumbList>
+        <BreadcrumbItem>
+          <BreadcrumbLink href='/'>Home</BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator />
+        <BreadcrumbItem>
+          <BreadcrumbPage>{name}</BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  );
+}
+export default BreadCrumbs;
+```
+
+- For the Share button we use React Share Library which already has built in components to integrate LinkedIn, Twitter etc.
+```shell
+npm i react-share
+```
+
+```js
+'use client';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { Button } from '../ui/button';
+import { LuShare2 } from 'react-icons/lu';
+
+import {
+  TwitterShareButton,
+  EmailShareButton,
+  LinkedinShareButton,
+  TwitterIcon,
+  EmailIcon,
+  LinkedinIcon,
+} from 'react-share';
+
+function ShareButton({
+  propertyId,
+  name,
+}: {
+  propertyId: string;
+  name: string;
+}) {
+  const url = process.env.NEXT_PUBLIC_WEBSITE_URL;
+  const shareLink = `${url}/properties/${propertyId}`;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant='outline' size='icon' className='p-2'>
+          <LuShare2 />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        side='top'
+        align='end'
+        sideOffset={10}
+        className='flex items-center gap-x-2 justify-center w-full'
+      >
+        <TwitterShareButton url={shareLink} title={name}>
+          <TwitterIcon size={32} round />
+        </TwitterShareButton>
+        <LinkedinShareButton url={shareLink} title={name}>
+          <LinkedinIcon size={32} round />
+        </LinkedinShareButton>
+        <EmailShareButton url={shareLink} subject={name}>
+          <EmailIcon size={32} round />
+        </EmailShareButton>
+      </PopoverContent>
+    </Popover>
+  );
+}
+export default ShareButton;
+```
+- Next we have the Image Container which is just a NextJS Image component
+- Next we have the Calendar component
+- We use the Calendar Shadcn component here
+```js
+'use client';
+import { useState } from 'react';
+import { Calendar } from '@/components/ui/calendar';
+import { DateRange } from 'react-day-picker';
+
+export default function App() {
+  const currentDate = new Date();
+  const defaultSelected: DateRange = {
+    from: undefined,
+    to: undefined,
+  };
+  const [range, setRange] = useState<DateRange | undefined>(defaultSelected);
+
+  return (
+    <Calendar
+      id='test'
+      mode='range'
+      defaultMonth={currentDate}
+      selected={range}
+      onSelect={setRange}
+    />
+  );
+}
+```
+
+- Next we have the Property Details component
+````js
+import { formatQuantity } from '@/utils/format';
+
+type PropertyDetailsProps = {
+  details: {
+    bedrooms: number;
+    baths: number;
+    guests: number;
+    beds: number;
+  };
+};
+
+function PropertyDetails({
+  details: { bedrooms, baths, guests, beds },
+}: PropertyDetailsProps) {
+  return (
+    <p className='text-md font-light '>
+      <span>{formatQuantity(bedrooms, 'bedroom')} &middot; </span>
+      <span>{formatQuantity(baths, 'bath')} &middot; </span>
+      <span>{formatQuantity(guests, 'guest')} &middot; </span>
+      <span>{formatQuantity(beds, 'bed')}</span>
+    </p>
+  );
+}
+export default PropertyDetails;
+````
+- Next we have the User Info component
+```js
+import Image from 'next/image';
+
+type UserInfoProps = {
+  profile: {
+    profileImage: string;
+    firstName: string;
+  };
+};
+
+function UserInfo({ profile: { profileImage, firstName } }: UserInfoProps) {
+  return (
+    <article className='grid grid-cols-[auto,1fr] gap-4 mt-4'>
+      <Image
+        src={profileImage}
+        alt={firstName}
+        width={50}
+        height={50}
+        className='rounded-md w-12 h-12 object-cover'
+      />
+      <div>
+        <p>
+          Hosted by
+          <span className='font-bold'> {firstName}</span>
+        </p>
+        <p className='text-muted-foreground font-light'>
+          Superhost &middot; 2 years hosting
+        </p>
+      </div>
+    </article>
+  );
+}
+export default UserInfo;
+```
+
+- Next we have the description component
+```js
+'use client';
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import Title from './Title';
+const Description = ({ description }: { description: string }) => {
+  const [isFullDescriptionShown, setIsFullDescriptionShown] = useState(false);
+  const words = description.split(' ');
+  const isLongDescription = words.length > 100;
+
+  const toggleDescription = () => {
+    setIsFullDescriptionShown(!isFullDescriptionShown);
+  };
+
+  const displayedDescription =
+    isLongDescription && !isFullDescriptionShown
+      ? words.slice(0, 100).join(' ') + '...'
+      : description;
+
+  return (
+    <article className='mt-4'>
+      <Title text='Description' />
+      <p className='text-muted-foreground font-light leading-loose'>
+        {displayedDescription}
+      </p>
+      {isLongDescription && (
+        <Button variant='link' className='pl-0' onClick={toggleDescription}>
+          {isFullDescriptionShown ? 'Show less' : 'Show more'}
+        </Button>
+      )}
+    </article>
+  );
+};
+
+export default Description;
+```
+
+- Then we have Amenities component
+```js
+import { Amenity } from '@/utils/amenities';
+import { LuFolderCheck } from 'react-icons/lu';
+import Title from './Title';
+
+function Amenities({ amenities }: { amenities: string }) {
+  const amenitiesList: Amenity[] = JSON.parse(amenities as string);
+  const noAmenities = amenitiesList.every((amenity) => !amenity.selected);
+
+  if (noAmenities) {
+    return null;
+  }
+  return (
+    <div className='mt-4'>
+      <Title text='What this place offers' />
+      <div className='grid md:grid-cols-2 gap-x-4'>
+        {amenitiesList.map((amenity) => {
+          if (!amenity.selected) {
+            return null;
+          }
+          return (
+            <div key={amenity.name} className='flex items-center gap-x-4 mb-2 '>
+              <LuFolderCheck className='h-6 w-6 text-primary' />
+              <span className='font-light text-sm capitalize'>
+                {amenity.name}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+export default Amenities;
+```
+- Next we have the Property Map component
+
+## Property Map component utilizes the React Leaflet library
+ - React Leaflet is a library that provides React components for Leaflet, a popular open-source JavaScript library for interactive maps
+ - Integration with React: React Leaflet leverages Leaflet to abstract its layers as React components, making it easy to integrate maps into your React app
+ - Customizable Components: You can use various React components to add different map features, such as markers, popups, and tile layers
+ - OpenStreetMap Integration: React Leaflet works well with OpenStreetMap, providing a great base map for your applications
+
+```js
+import React from 'react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+
+const position = [51.505, -0.09];
+
+function Map() {
+  return (
+    <MapContainer center={position} zoom={13} scrollWheelZoom={false}>
+      <TileLayer
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      <Marker position={position}>
+        <Popup>
+          A pretty CSS3 popup. <br /> Easily customizable.
+        </Popup>
+      </Marker>
+    </MapContainer>
+  );
+}
+
+export default Map;
+
+```
+### Lazy Loading of component especially in context of Property Map
+
+- Lazy Loading: Components wrapped with dynamic are lazy loaded. This means that the component code is not loaded until it is needed. 
+- For example, if you have a component that is only visible when a user clicks a button, you could use dynamic to ensure that the code for that component is not loaded until the button is clicked.
+- Server Side Rendering (SSR) Control: By default, Next.js pre-renders every page.
+- This means that it generates HTML for each page in advance, instead of doing it all on the client-side.
+- However, with dynamic, you can control this behavior. You can choose to disable SSR for specific modules, which can be useful for modules that have client-side dependencies.
+```js
+import dynamic from 'next/dynamic';
+import {Skeleton} from "@/components/ui/skeleton";
+    const DynamicMap = dynamic(
+    () => import('@/components/properties/PropertyMap'),
+    {
+        ssr: false,
+        loading: () => <Skeleton className='h-[400px] w-full' />,
+    }
+);
+    //use it directly like this
+<DynamicMap countryCode={property.country}/>
+    
+```
+
+# Deploying Projects on Vercel
+
+- Since we are using Prisma, we need to apply the following code to our build command:
+
+```shell
+"scripts": {
+    "dev": "next dev --turbopack",
+    "build": "npx prisma generate && next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+```
+- Provide link to Git Repository
+- Provide environment variables inside vercel
+- That's it, we can deploy the app on vercel
 
 
 
