@@ -5,15 +5,20 @@ import FavoriteToggleButton from "@/components/card/FavoriteToggleButton";
 import ShareButton from "@/components/properties/ShareButton";
 import ImageContainer from "@/components/properties/ImageContainer";
 import PropertyRating from "@/components/card/PropertyRating";
-import BookingCalendar from "@/components/properties/BookingCalendar";
+// import BookingCalendar from "@/components/properties/BookingCalendar";
 import PropertyDetails from "@/components/properties/PropertyDetails";
 import UserInfo from "@/components/properties/UserInfo";
 import {Separator} from "@/components/ui/separator";
 import Description from "@/components/properties/Description";
 import Amenities from "@/components/properties/Amenities";
 import LazyMap from "@/components/properties/LazyMap";
-//import dynamic from 'next/dynamic';
-//import {Skeleton} from "@/components/ui/skeleton";
+import SubmitReview from "@/components/reviews/SubmitReview";
+import PropertyReviews from "@/components/reviews/PropertyReviews";
+import { findExistingReview } from '@/utils/actions';
+import { auth } from '@clerk/nextjs/server';
+// import dynamic from 'next/dynamic';
+// import {Skeleton} from "@/components/ui/skeleton";
+import LazyBookingWrapper from "@/components/properties/LazyBookingWrapper";
 
 //const DynamicComponent = dynamic(() => import('@/components/properties/PropertyMap'), { ssr: false});
 
@@ -25,16 +30,33 @@ import LazyMap from "@/components/properties/LazyMap";
 //     }
 // );
 
+// const DynamicBookingWrapper = dynamic(
+//     () => import('@/components/booking/BookingWrapper'),
+//     {
+//         ssr: false,
+//         loading: () => <Skeleton className='h-[200px] w-full' />,
+//     }
+// );
+
 async function PropertyDetailsPage({params}:{params:{id:string}}) {
+    const {userId} = await auth();
+
     const paramsValue = await params;
     const property = await fetchPropertyDetails(paramsValue.id);
+
     if(!property) {
         redirect('/');
     }
+    const isNotOwner = property.profile.clerkId !== userId;
+    const reviewDoesNotExist =
+        userId && isNotOwner && !(await findExistingReview(userId, property.id));
+
     const {baths,bedrooms,beds,guests} = property;
     const details = {baths,bedrooms,beds,guests};
     const firstName = property.profile.firstName;
     const profileImage = property.profile.profileImage;
+    console.log('Bookings = '+ property.bookings);
+
     return (
         <section>
             <BreadCrumbs name={property.name}/>
@@ -60,9 +82,16 @@ async function PropertyDetailsPage({params}:{params:{id:string}}) {
                     <LazyMap countryCode={property.country}/>
                 </div>
                 <div className='lg:col-span-4 flex flex-col items-center'>
-                    <BookingCalendar />
+                    {/* Booking Calendar */}
+                    <LazyBookingWrapper
+                        propertyId={property.id}
+                        price={property.price}
+                        bookings={property.bookings}
+                    />
                 </div>
             </section>
+            {reviewDoesNotExist && <SubmitReview propertyId={property.id}/>}
+            <PropertyReviews propertyId={property.id} />
         </section>
     )
 }

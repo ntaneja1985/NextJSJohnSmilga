@@ -1266,6 +1266,826 @@ import {Skeleton} from "@/components/ui/skeleton";
 - Provide environment variables inside vercel
 - That's it, we can deploy the app on vercel
 
+# Reviews Component
+- Each property can have multiple reviews and each user can also post multiple reviews of different properties
+- Setup of the model would be like:
+```js
+
+model Review {
+  id        String   @id @default(uuid())
+  profile   Profile  @relation(fields: [profileId], references: [clerkId], onDelete: Cascade)
+  profileId String
+  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId String
+  rating    Int
+  comment   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model Property {
+ reviews Review[]
+}
+model Profile {
+ reviews Review[]
+}
+
+```
+- Each Review will be encapsulated inside a review card with a rating dropdown and a comment text area
+- We will have components for comment,rating,submit review, review card and list of property reviews.
+- We will have action methods for creating Review, deleting review, fetching reviews by user and fetching reviews by property
+- User will have to click on Leave a Comment button to leave the review.
+- SubmitReview component will look like this
+```js
+'use client';
+import { useState } from 'react';
+import { SubmitButton } from '@/components/form/Buttons';
+import FormContainer from '@/components/form/FormContainer';
+import { Card } from '@/components/ui/card';
+import RatingInput from '@/components/form/RatingInput';
+import TextAreaInput from '@/components/form/TextAreaInput';
+import { Button } from '@/components/ui/button';
+import { createReviewAction } from '@/utils/actions';
+function SubmitReview({ propertyId }: { propertyId: string }) {
+  const [isReviewFormVisible, setIsReviewFormVisible] = useState(false);
+  return (
+    <div className='mt-8'>
+      <Button onClick={() => setIsReviewFormVisible((prev) => !prev)}>
+        Leave a Review
+      </Button>
+      {isReviewFormVisible && (
+        <Card className='p-8 mt-8'>
+          <FormContainer action={createReviewAction}>
+            <input type='hidden' name='propertyId' value={propertyId} />
+            <RatingInput name='rating' />
+            <TextAreaInput
+              name='comment'
+              labelText='your thoughts on this property'
+              defaultValue='Amazing place !!!'
+            />
+            <SubmitButton text='Submit' className='mt-4' />
+          </FormContainer>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+export default SubmitReview;
+```
+- To validate each review we will have a review schema in zod also
+```js
+export const createReviewSchema = z.object({
+  propertyId: z.string(),
+  rating: z.coerce.number().int().min(1).max(5),
+  comment: z.string().min(10).max(1000),
+});
+```
+- Code for create review will be like the following:
+```js
+export async function createReviewAction(prevState: any, formData: FormData) {
+  const user = await getAuthUser();
+  try {
+    const rawData = Object.fromEntries(formData);
+
+    const validatedFields = validateWithZodSchema(createReviewSchema, rawData);
+    await db.review.create({
+      data: {
+        ...validatedFields,
+        profileId: user.id,
+      },
+    });
+    revalidatePath(`/properties/${validatedFields.propertyId}`);
+    return { message: 'Review submitted successfully' };
+  } catch (error) {
+    return renderError(error);
+  }
+}
+```
+- Similarly, the fetch review method would be like:
+```js
+export async function fetchPropertyReviews(propertyId: string) {
+  const reviews = await db.review.findMany({
+    where: {
+      propertyId,
+    },
+    select: {
+      id: true,
+      rating: true,
+      comment: true,
+      profile: {
+        select: {
+          firstName: true,
+          profileImage: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+  return reviews;
+}
+```
+- Reviews will be displayed inside a Review Card component like this
+```js
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import Rating from './Rating';
+import Comment from './Comment';
+type ReviewCardProps = {
+  reviewInfo: {
+    comment: string;
+    rating: number;
+    name: string;
+    image: string;
+  };
+  children?: React.ReactNode;
+};
+
+function ReviewCard({ reviewInfo, children }: ReviewCardProps) {
+  return (
+    <Card className='relative'>
+      <CardHeader>
+        <div className='flex items-center'>
+          <img
+            src={reviewInfo.image}
+            alt='profile'
+            className='w-12 h-12 rounded-full object-cover'
+          />
+          <div className='ml-4'>
+            <h3 className='text-sm font-bold capitalize mb-1'>
+              {reviewInfo.name}
+            </h3>
+            <Rating rating={reviewInfo.rating} />
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <Comment comment={reviewInfo.comment} />
+      </CardContent>
+      {/* delete button later */}
+      <div className='absolute top-3 right-3'>{children}</div>
+    </Card>
+  );
+}
+export default ReviewCard;
+```
+- The reviews page will have the following code:
+
+```js
+import EmptyList from '@/components/home/EmptyList';
+import {
+  deleteReviewAction,
+  fetchPropertyReviewsByUser,
+} from '@/utils/actions';
+import ReviewCard from '@/components/reviews/ReviewCard';
+import Title from '@/components/properties/Title';
+import FormContainer from '@/components/form/FormContainer';
+import { IconButton } from '@/components/form/Buttons';
+async function ReviewsPage() {
+  const reviews = await fetchPropertyReviewsByUser();
+  if (reviews.length === 0) return <EmptyList />;
+
+  return (
+    <>
+      <Title text='Your Reviews' />
+      <section className='grid md:grid-cols-2 gap-8 mt-4 '>
+        {reviews.map((review) => {
+          const { comment, rating } = review;
+          const { name, image } = review.property;
+          const reviewInfo = {
+            comment,
+            rating,
+            name,
+            image,
+          };
+          return (
+            <ReviewCard key={review.id} reviewInfo={reviewInfo}>
+              <DeleteReview reviewId={review.id} />
+            </ReviewCard>
+          );
+        })}
+      </section>
+    </>
+  );
+}
+
+const DeleteReview = ({ reviewId }: { reviewId: string }) => {
+  const deleteReview = deleteReviewAction.bind(null, { reviewId });
+  return (
+    <FormContainer action={deleteReview}>
+      <IconButton actionType='delete' />
+    </FormContainer>
+  );
+};
+
+export default ReviewsPage;
+```
+- We will also have a check that if the user is not logged or user is not logged in or user has already reviewed a property, he cannot review it again.
+
+```js
+export const findExistingReview = async (
+  userId: string,
+  propertyId: string
+) => {
+  return db.review.findFirst({
+    where: {
+      profileId: userId,
+      propertyId: propertyId,
+    },
+  });
+};
+
+import { findExistingReview } from '@/utils/actions';
+import { auth } from '@clerk/nextjs/server';
+
+async function PropertyDetailsPage({ params }: { params: { id: string } }) {
+    const { userId } = auth();
+    const isNotOwner = property.profile.clerkId !== userId;
+    const reviewDoesNotExist =
+        userId && isNotOwner && !(await findExistingReview(userId, property.id));
+
+    return <>{reviewDoesNotExist && <SubmitReview propertyId={property.id} />}</>;
+}
+
+
+```
+- Please note, that prisma's findUnique and findFirst methods are used to retrieve a single record from the database, but they have some differences in their behavior:
+1. findUnique: This method is used when you want to retrieve a single record that matches a unique constraint or a primary key. If no record is found, it returns null.
+2. findFirst: This method is used when you want to retrieve a single record that matches a non-unique constraint. It can also be used with ordering and filtering. If no record is found, it returns null.
+
+### In summary, use findUnique when you're sure the field you're querying by is unique, and use findFirst when you're querying by a non-unique field or need more complex queries with ordering and filtering.
+
+# Property Rating
+- Now since we have the reviews, we can calculate the property rating 
+```js
+export async function fetchPropertyRating(propertyId: string) {
+  const result = await db.review.groupBy({
+    by: ['propertyId'],
+    _avg: {
+      rating: true,
+    },
+    _count: {
+      rating: true,
+    },
+    where: {
+      propertyId,
+    },
+  });
+
+  // empty array if no reviews
+  return {
+    rating: result[0]?._avg.rating?.toFixed(1) ?? 0,
+    count: result[0]?._count.rating ?? 0,
+  };
+}
+```
+- Property rating component will go like this
+```js
+import { fetchPropertyRating } from '@/utils/actions';
+import { FaStar } from 'react-icons/fa';
+
+async function PropertyRating({
+  propertyId,
+  inPage,
+}: {
+  propertyId: string;
+  inPage: boolean;
+}) {
+  const { rating, count } = await fetchPropertyRating(propertyId);
+  if (count === 0) return null;
+  const className = `flex gap-1 items-center ${inPage ? 'text-md' : 'text-xs'}`;
+  const countText = count === 1 ? 'review' : 'reviews';
+  const countValue = `(${count}) ${inPage ? countText : ''}`;
+  return (
+    <span className={className}>
+      <FaStar className='w-3 h-3' />
+      {rating} {countValue}
+    </span>
+  );
+}
+
+export default PropertyRating;
+```
+
+# Bookings
+
+- A user can make multiple bookings and a property can have multiple bookings as well
+```js
+model Booking {
+  id        String   @id @default(uuid())
+  profile   Profile  @relation(fields: [profileId], references: [clerkId], onDelete: Cascade)
+  profileId String
+  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId String
+  orderTotal     Int
+  totalNights    Int
+  checkIn   DateTime
+  checkOut  DateTime
+  paymentStatus Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Profile {
+  bookings Booking[]
+}
+model Property {
+  bookings Booking[]
+}
+
+```
+- To fetch the bookings for a property we can use the following action method:
+```js
+export const fetchPropertyDetails = (id: string) => {
+  return db.property.findUnique({
+    where: {
+      id,
+    },
+    include: {
+      profile: true,
+      bookings: {
+        select: {
+          checkIn: true,
+          checkOut: true,
+        },
+      },
+    },
+  });
+};
+```
+
+- We also need to define few specific types:
+```js
+export type DateRangeSelect = {
+  startDate: Date;
+  endDate: Date;
+  key: string;
+};
+
+export type Booking = {
+  checkIn: Date;
+  checkOut: Date;
+};
+```
+## Booking Components
+- Booking Calendar
+- Booking Container
+- Booking Form
+- Booking Wrapper
+- Confirm Booking
+
+### Since we need to make bookings on the fly, we need to maintain the state of selections by the user
+- For this we need to introduce state management using zustand library
+- In utils we will set up store.ts
+```js
+import { create } from 'zustand';
+import { Booking } from './types';
+import { DateRange } from 'react-day-picker';
+// Define the state's shape
+type PropertyState = {
+  propertyId: string;
+  price: number;
+  bookings: Booking[];
+  range: DateRange | undefined;
+};
+
+// Create the store
+export const useProperty = create<PropertyState>(() => {
+  return {
+    propertyId: '',
+    price: 0,
+    bookings: [],
+    range: undefined,
+  };
+});
+```
+## Booking Wrapper
+- The booking wrapper will set the state and contain the Booking Calendar and Booking Container components
+- Notice how we use the useEffect to set the initial state of the booking
+```js
+'use client';
+
+import { useProperty } from '@/utils/store';
+import { Booking } from '@/utils/types';
+import BookingCalendar from './BookingCalendar';
+import BookingContainer from './BookingContainer';
+import { useEffect } from 'react';
+
+type BookingWrapperProps = {
+  propertyId: string;
+  price: number;
+  bookings: Booking[];
+};
+export default function BookingWrapper({
+  propertyId,
+  price,
+  bookings,
+}: BookingWrapperProps) {
+  useEffect(() => {
+    useProperty.setState({
+      propertyId,
+      price,
+      bookings,
+    });
+  }, []);
+  return (
+    <>
+      <BookingCalendar />
+      <BookingContainer />
+    </>
+  );
+}
+```
+- Inside the Property Page, we will set up Booking Wrapper like this
+
+```js
+const DynamicBookingWrapper = dynamic(
+  () => import('@/components/booking/BookingWrapper'),
+  {
+    ssr: false,
+    loading: () => <Skeleton className='h-[200px] w-full' />,
+  }
+);
+
+return (
+  <div className='lg:col-span-4 flex flex-col items-center'>
+    {/* calendar */}
+    <DynamicBookingWrapper
+      propertyId={property.id}
+      price={property.price}
+      bookings={property.bookings}
+    />
+  </div>
+);
+```
+- We will use Calendar component from Shadcn-ui to set the range of dates for the property
+- The range of dates so selected will be passed to zustand useProperty state to be used globally.
+- Code for Booking Calendar will look like this:
+```js
+'use client';
+import { Calendar } from '@/components/ui/calendar';
+import { useEffect, useState } from 'react';
+import { useToast } from '@/components/ui/use-toast';
+import { DateRange } from 'react-day-picker';
+import { useProperty } from '@/utils/store';
+
+import {
+  generateDisabledDates,
+  generateDateRange,
+  defaultSelected,
+  generateBlockedPeriods,
+} from '@/utils/calendar';
+
+function BookingCalendar() {
+  const currentDate = new Date();
+
+  const [range, setRange] = useState<DateRange | undefined>(defaultSelected);
+
+  useEffect(() => {
+    useProperty.setState({ range });
+  }, [range]);
+
+  return (
+    <Calendar
+      mode='range'
+      defaultMonth={currentDate}
+      selected={range}
+      onSelect={setRange}
+      className='mb-4'
+    />
+  );
+}
+export default BookingCalendar;
+```
+### We will need to block the user from booking on those dates the property has already booked.
+- For this we will utilize state management to know which bookings are there in place for this property on which dates.
+- Remember in BookingWrapper we were setting the Property State and within that we will also setting the bookings range.
+
+```js
+function BookingCalendar() {
+    const bookings = useProperty((state) => state.bookings);
+    const blockedPeriods = generateBlockedPeriods({
+        bookings,
+        today: currentDate,
+    });
+
+    return (
+        <Calendar
+            mode='range'
+            defaultMonth={currentDate}
+            selected={range}
+            onSelect={setRange}
+            className='mb-4'
+            // add disabled
+            disabled={blockedPeriods}
+        />
+    );
+}
+export default BookingCalendar;
+```
+
+- To send a message to user to not use the blocked dates, use this code:
+```js
+function BookingCalendar() {
+  const { toast } = useToast();
+  const unavailableDates = generateDisabledDates(blockedPeriods);
+
+  useEffect(() => {
+    const selectedRange = generateDateRange(range);
+    const isDisabledDateIncluded = selectedRange.some((date) => {
+      if (unavailableDates[date]) {
+        setRange(defaultSelected);
+        toast({
+          description: 'Some dates are booked. Please select again.',
+        });
+        return true;
+      }
+      return false;
+    });
+    useProperty.setState({ range });
+  }, [range]);
+
+  return (
+    <Calendar
+      mode='range'
+      defaultMonth={currentDate}
+      selected={range}
+      onSelect={setRange}
+      className='mb-4'
+      // add disabled
+      disabled={blockedPeriods}
+    />
+  );
+}
+export default BookingCalendar;
+```
+
+
+- Next we will set up the Booking Container which contains the Booking Form and Confirm Booking button
+- The booking form will go like this:
+```js
+import { calculateTotals } from '@/utils/calculateTotals';
+import { Card, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { useProperty } from '@/utils/store';
+import { formatCurrency } from '@/utils/format';
+function BookingForm() {
+  const { range, price } = useProperty((state) => state);
+  const checkIn = range?.from as Date;
+  const checkOut = range?.to as Date;
+
+  const { totalNights, subTotal, cleaning, service, tax, orderTotal } =
+    calculateTotals({
+      checkIn,
+      checkOut,
+      price,
+    });
+  return (
+    <Card className='p-8 mb-4'>
+      <CardTitle className='mb-8'>Summary </CardTitle>
+      <FormRow label={`$${price} x ${totalNights} nights`} amount={subTotal} />
+      <FormRow label='Cleaning Fee' amount={cleaning} />
+      <FormRow label='Service Fee' amount={service} />
+      <FormRow label='Tax' amount={tax} />
+      <Separator className='mt-4' />
+      <CardTitle className='mt-8'>
+        <FormRow label='Booking Total' amount={orderTotal} />
+      </CardTitle>
+    </Card>
+  );
+}
+
+function FormRow({ label, amount }: { label: string; amount: number }) {
+  return (
+    <p className='flex justify-between text-sm mb-2'>
+      <span>{label}</span>
+      <span>{formatCurrency(amount)}</span>
+    </p>
+  );
+}
+
+export default BookingForm;
+```
+- The Confirm Booking component will see if the user has logged in or not. If not, it will show a Clerk UI Modal to login or else it will ask the user to proceed with the booking
+
+```js
+'use client';
+import { SignInButton, useAuth } from '@clerk/nextjs';
+import { Button } from '@/components/ui/button';
+import { useProperty } from '@/utils/store';
+import FormContainer from '@/components/form/FormContainer';
+import { SubmitButton } from '@/components/form/Buttons';
+import { createBookingAction } from '@/utils/actions';
+
+function ConfirmBooking() {
+    const { userId } = useAuth();
+    const { propertyId, range } = useProperty((state) => state);
+    const checkIn = range?.from as Date;
+    const checkOut = range?.to as Date;
+    if (!userId)
+        return (
+            <SignInButton mode='modal'>
+                <Button type='button' className='w-full'>
+                    Sign In to Complete Booking
+                </Button>
+            </SignInButton>
+        );
+
+    const createBooking = createBookingAction.bind(null, {
+        propertyId,
+        checkIn,
+        checkOut,
+    });
+    return (
+        <section>
+            <FormContainer action={createBooking}>
+                <SubmitButton text='Reserve' className='w-full' />
+            </FormContainer>
+        </section>
+    );
+}
+export default ConfirmBooking;
+```
+- Finally, we will create a createBookingAction which will successfully create the booking
+```js
+export const createBookingAction = async (prevState: {
+  propertyId: string;
+  checkIn: Date;
+  checkOut: Date;
+}) => {
+  const user = await getAuthUser();
+
+  const { propertyId, checkIn, checkOut } = prevState;
+  const property = await db.property.findUnique({
+    where: { id: propertyId },
+    select: { price: true },
+  });
+  if (!property) {
+    return { message: 'Property not found' };
+  }
+  const { orderTotal, totalNights } = calculateTotals({
+    checkIn,
+    checkOut,
+    price: property.price,
+  });
+
+  try {
+    const booking = await db.booking.create({
+      data: {
+        checkIn,
+        checkOut,
+        orderTotal,
+        totalNights,
+        profileId: user.id,
+        propertyId,
+      },
+    });
+  } catch (error) {
+    return renderError(error);
+  }
+  redirect('/bookings');
+};
+```
+### Finally we need to work on Booking Page
+- It will have the list of bookings of the user and ability to delete a booking
+```js
+export const fetchBookings = async () => {
+  const user = await getAuthUser();
+  const bookings = await db.booking.findMany({
+    where: {
+      profileId: user.id,
+    },
+    include: {
+      property: {
+        select: {
+          id: true,
+          name: true,
+          country: true,
+        },
+      },
+    },
+    orderBy: {
+      checkIn: 'desc',
+    },
+  });
+  return bookings;
+};
+
+export async function deleteBookingAction(prevState: { bookingId: string }) {
+  const { bookingId } = prevState;
+  const user = await getAuthUser();
+
+  try {
+    const result = await db.booking.delete({
+      where: {
+        id: bookingId,
+        profileId: user.id,
+      },
+    });
+
+    revalidatePath('/bookings');
+    return { message: 'Booking deleted successfully' };
+  } catch (error) {
+    return renderError(error);
+  }
+}
+```
+
+- Final Bookings Page will look like this
+```js
+import EmptyList from '@/components/home/EmptyList';
+import CountryFlagAndName from '@/components/card/CountryFlagAndName';
+import Link from 'next/link';
+
+import { formatDate, formatCurrency } from '@/utils/format';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+
+import FormContainer from '@/components/form/FormContainer';
+import { IconButton } from '@/components/form/Buttons';
+import { fetchBookings, deleteBookingAction } from '@/utils/actions';
+
+async function BookingsPage() {
+  const bookings = await fetchBookings();
+  if (bookings.length === 0) {
+    return <EmptyList />;
+  }
+  return (
+    <div className='mt-16'>
+      <h4 className='mb-4 capitalize'>total bookings : {bookings.length}</h4>
+      <Table>
+        <TableCaption>A list of your recent bookings.</TableCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Property Name</TableHead>
+            <TableHead>Country</TableHead>
+            <TableHead>Nights</TableHead>
+            <TableHead>Total</TableHead>
+            <TableHead>Check In</TableHead>
+            <TableHead>Check Out</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {bookings.map((booking) => {
+            const { id, orderTotal, totalNights, checkIn, checkOut } = booking;
+            const { id: propertyId, name, country } = booking.property;
+            const startDate = formatDate(checkIn);
+            const endDate = formatDate(checkOut);
+            return (
+              <TableRow key={id}>
+                <TableCell>
+                  <Link
+                    href={`/properties/${propertyId}`}
+                    className='underline text-muted-foreground tracking-wide'
+                  >
+                    {name}
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  <CountryFlagAndName countryCode={country} />
+                </TableCell>
+                <TableCell>{totalNights}</TableCell>
+                <TableCell>{formatCurrency(orderTotal)}</TableCell>
+                <TableCell>{startDate}</TableCell>
+                <TableCell>{endDate}</TableCell>
+                <TableCell>
+                  <DeleteBooking bookingId={id} />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function DeleteBooking({ bookingId }: { bookingId: string }) {
+  const deleteBooking = deleteBookingAction.bind(null, { bookingId });
+  return (
+    <FormContainer action={deleteBooking}>
+      <IconButton actionType='delete' />
+    </FormContainer>
+  );
+}
+
+export default BookingsPage;
+```
+
+# Rentals Page
+
+
+
+
+
 
 
 
