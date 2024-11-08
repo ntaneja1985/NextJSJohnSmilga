@@ -2082,6 +2082,607 @@ export default BookingsPage;
 
 # Rentals Page
 
+- Just like all other features, we will have action methods to fetch Rentals, get Rentals with booking sums, delete Rental, edit Rentals
+- Methods to manipulate the rentals will have the following code:
+```js
+export const fetchRentals = async () => {
+  const user = await getAuthUser();
+  const rentals = await db.property.findMany({
+    where: {
+      profileId: user.id,
+    },
+    select: {
+      id: true,
+      name: true,
+      price: true,
+    },
+  });
+
+  const rentalsWithBookingSums = await Promise.all(
+    rentals.map(async (rental) => {
+      const totalNightsSum = await db.booking.aggregate({
+        where: {
+          propertyId: rental.id,
+        },
+        _sum: {
+          totalNights: true,
+        },
+      });
+
+      const orderTotalSum = await db.booking.aggregate({
+        where: {
+          propertyId: rental.id,
+        },
+        _sum: {
+          orderTotal: true,
+        },
+      });
+
+      return {
+        ...rental,
+        totalNightsSum: totalNightsSum._sum.totalNights,
+        orderTotalSum: orderTotalSum._sum.orderTotal,
+      };
+    })
+  );
+
+  return rentalsWithBookingSums;
+};
+
+export async function deleteRentalAction(prevState: { propertyId: string }) {
+  const { propertyId } = prevState;
+  const user = await getAuthUser();
+
+  try {
+    await db.property.delete({
+      where: {
+        id: propertyId,
+        profileId: user.id,
+      },
+    });
+
+    revalidatePath('/rentals');
+    return { message: 'Rental deleted successfully' };
+  } catch (error) {
+    return renderError(error);
+  }
+}
+```
+- Then we will create a loading.tsx page for rentals
+- Finally, we will create a rentals page with the following code:
+```js
+import EmptyList from '@/components/home/EmptyList';
+import { fetchRentals, deleteRentalAction } from '@/utils/actions';
+import Link from 'next/link';
+
+import { formatCurrency } from '@/utils/format';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+
+import FormContainer from '@/components/form/FormContainer';
+import { IconButton } from '@/components/form/Buttons';
+
+async function RentalsPage() {
+  const rentals = await fetchRentals();
+
+  if (rentals.length === 0) {
+    return (
+      <EmptyList
+        heading='No rentals to display.'
+        message="Don't hesitate to create a rental."
+      />
+    );
+  }
+
+  return (
+    <div className='mt-16'>
+      <h4 className='mb-4 capitalize'>Active Properties : {rentals.length}</h4>
+      <Table>
+        <TableCaption>A list of all your properties.</TableCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Property Name</TableHead>
+            <TableHead>Nightly Rate </TableHead>
+            <TableHead>Nights Booked</TableHead>
+            <TableHead>Total Income</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rentals.map((rental) => {
+            const { id: propertyId, name, price } = rental;
+            const { totalNightsSum, orderTotalSum } = rental;
+            return (
+              <TableRow key={propertyId}>
+                <TableCell>
+                  <Link
+                    href={`/properties/${propertyId}`}
+                    className='underline text-muted-foreground tracking-wide'
+                  >
+                    {name}
+                  </Link>
+                </TableCell>
+                <TableCell>{formatCurrency(price)}</TableCell>
+                <TableCell>{totalNightsSum || 0}</TableCell>
+                <TableCell>{formatCurrency(orderTotalSum)}</TableCell>
+
+                <TableCell className='flex items-center gap-x-2'>
+                  <Link href={`/rentals/${propertyId}/edit`}>
+                    <IconButton actionType='edit'></IconButton>
+                  </Link>
+                  <DeleteRental propertyId={propertyId} />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function DeleteRental({ propertyId }: { propertyId: string }) {
+  const deleteRental = deleteRentalAction.bind(null, { propertyId });
+  return (
+    <FormContainer action={deleteRental}>
+      <IconButton actionType='delete' />
+    </FormContainer>
+  );
+}
+
+export default RentalsPage;
+```
+- Finally, we will have an update property(rental) action which has the following code:
+```js
+export const updatePropertyAction = async (
+  prevState: any,
+  formData: FormData
+): Promise<{ message: string }> => {
+  const user = await getAuthUser();
+  const propertyId = formData.get('id') as string;
+
+  try {
+    const rawData = Object.fromEntries(formData);
+    const validatedFields = validateWithZodSchema(propertySchema, rawData);
+    await db.property.update({
+      where: {
+        id: propertyId,
+        profileId: user.id,
+      },
+      data: {
+        ...validatedFields,
+      },
+    });
+
+    revalidatePath(`/rentals/${propertyId}/edit`);
+    return { message: 'Update Successful' };
+  } catch (error) {
+    return renderError(error);
+  }
+};
+```
+
+# Reservations Functionality
+- Once a user creates a rental, he will also have ability to view the number of bookings made for that rentals.
+- If a user has multiple rentals(properties), he should be able to see a list of all the reservations
+
+```js
+export const fetchReservations = async () => {
+  const user = await getAuthUser();
+
+  const reservations = await db.booking.findMany({
+    where: {
+      property: {
+        profileId: user.id,
+      },
+    },
+
+    orderBy: {
+      createdAt: 'desc', // or 'asc' for ascending order
+    },
+
+    include: {
+      property: {
+        select: {
+          id: true,
+          name: true,
+          price: true,
+          country: true,
+        },
+      }, // include property details in the result
+    },
+  });
+  return reservations;
+};
+```
+- List of Reservations page is similar to bookings page or rentals page
+```js
+import { fetchReservations } from '@/utils/actions';
+import Link from 'next/link';
+import EmptyList from '@/components/home/EmptyList';
+import CountryFlagAndName from '@/components/card/CountryFlagAndName';
+
+import { formatDate, formatCurrency } from '@/utils/format';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+
+async function ReservationsPage() {
+  const reservations = await fetchReservations();
+
+  if (reservations.length === 0) {
+    return <EmptyList />;
+  }
+
+  return (
+    <div className='mt-16'>
+      <h4 className='mb-4 capitalize'>
+        total reservations : {reservations.length}
+      </h4>
+      <Table>
+        <TableCaption>A list of your recent reservations.</TableCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Property Name</TableHead>
+            <TableHead>Country</TableHead>
+            <TableHead>Nights</TableHead>
+            <TableHead>Total</TableHead>
+            <TableHead>Check In</TableHead>
+            <TableHead>Check Out</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {reservations.map((item) => {
+            const { id, orderTotal, totalNights, checkIn, checkOut } = item;
+            const { id: propertyId, name, country } = item.property;
+            const startDate = formatDate(checkIn);
+            const endDate = formatDate(checkOut);
+            return (
+              <TableRow key={id}>
+                <TableCell>
+                  <Link
+                    href={`/properties/${propertyId}`}
+                    className='underline text-muted-foreground tracking-wide'
+                  >
+                    {name}
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  <CountryFlagAndName countryCode={country} />
+                </TableCell>
+                <TableCell>{totalNights}</TableCell>
+                <TableCell>{formatCurrency(orderTotal)}</TableCell>
+                <TableCell>{startDate}</TableCell>
+                <TableCell>{endDate}</TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+export default ReservationsPage;
+```
+
+# Admin Functionality
+- Admin should be able to see in a barchart what number of properties are there, how many bookings have been made
+- For this we need to have a specific Admin User
+- We will copy the user's clerkId and put in ADMIN_USER_ID setting in the environment(env) file.
+- We will need to modify the middleware to do few things
+1. Check if logged-in user is Admin user and if he is navigating to the Admin page
+2. Just un-protect the public routes and protect all other routes.
+```ts
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+
+import { NextResponse } from 'next/server';
+
+const isPublicRoute = createRouteMatcher(['/', '/properties(.*)']);
+
+const isAdminRoute = createRouteMatcher(['/admin(.*)']);
+export default clerkMiddleware(async (auth, req) => {
+  const isAdminUser = auth().userId === process.env.ADMIN_USER_ID;
+  if (isAdminRoute(req) && !isAdminUser) {
+    return NextResponse.redirect(new URL('/', req.url));
+  }
+  if (!isPublicRoute(req)) auth().protect();
+});
+
+export const config = {
+  matcher: ['/((?!.*\\..*|_next).*)', '/', '/(api|trpc)(.*)'],
+};
+```
+- For showing the Admin page, we will use Suspense
+- If the barchart data is loading we will show the fallback of loading container like this
+
+```js
+import ChartsContainer from '@/components/admin/ChartsContainer';
+import StatsContainer from '@/components/admin/StatsContainer';
+import {
+  ChartsLoadingContainer,
+  StatsLoadingContainer,
+} from '@/components/admin/Loading';
+import { Suspense } from 'react';
+async function AdminPage() {
+  return (
+    <>
+      <Suspense fallback={<StatsLoadingContainer />}>
+        <StatsContainer />
+      </Suspense>
+      <Suspense fallback={<ChartsLoadingContainer />}>
+        <ChartsContainer />
+      </Suspense>
+    </>
+  );
+}
+export default AdminPage;
+```
+- To get the Charts data we need to look at bookings made in the past 6 months using the following code:
+```js
+export const fetchChartsData = async () => {
+  await getAdminUser();
+  const date = new Date();
+  date.setMonth(date.getMonth() - 6);
+  const sixMonthsAgo = date;
+
+  const bookings = await db.booking.findMany({
+    where: {
+      createdAt: {
+        gte: sixMonthsAgo,
+      },
+    },
+    orderBy: {
+      createdAt: 'asc',
+    },
+  });
+  let bookingsPerMonth = bookings.reduce((total, current) => {
+    const date = formatDate(current.createdAt, true);
+
+    const existingEntry = total.find((entry) => entry.date === date);
+    if (existingEntry) {
+      existingEntry.count += 1;
+    } else {
+      total.push({ date, count: 1 });
+    }
+    return total;
+  }, [] as Array<{ date: string; count: number }>);
+  return bookingsPerMonth;
+};
+```
+- Notice in the above code we are calculating bookingsPerMonth
+- This is displayed as an Array of [{'date',count}] where each date corresponds to a month
+- Notice we are using the reduce function on the bookings to get the details as an array of date month and count.
+- Finally, to display the charts, we will use Recharts npm package.
+
+```shell
+npm install recharts
+```
+- Chart component will have the following code:
+```js
+'use client';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+
+type ChartPropsType = {
+  data: {
+    date: string;
+    count: number;
+  }[];
+};
+
+function Chart({ data }: ChartPropsType) {
+  return (
+    <section className='mt-24'>
+      <h1 className='text-4xl font-semibold text-center'>Monthly Bookings</h1>
+      <ResponsiveContainer width='100%' height={300}>
+        <BarChart data={data} margin={{ top: 50 }}>
+          <CartesianGrid strokeDasharray='3 3' />
+          <XAxis dataKey='date' />
+          <YAxis allowDecimals={false} />
+          <Tooltip />
+          <Bar dataKey='count' fill='#F97215' barSize={75} />
+        </BarChart>
+      </ResponsiveContainer>
+    </section>
+  );
+}
+export default Chart;
+```
+- Integrating Stripe Payment
+- username/password for stripe is nishant.ncsu@gmail.com/Neha one
+- Need to install following libraries to integrate stripe
+
+```shell
+npm install --save @stripe/react-stripe-js @stripe/stripe-js stripe axios
+```
+- We will need to modify the create booking action to redirect to a checkout page and pass the booking Id
+```js
+redirect(`/checkout?bookingId=${bookingId}`);
+```
+
+- In the checkout page, we will use the stripe components to show a popup for stripe
+```js
+'use client';
+import axios from 'axios';
+import { useSearchParams } from 'next/navigation';
+import React, { useCallback } from 'react';
+import { loadStripe } from '@stripe/stripe-js';
+import {
+  EmbeddedCheckoutProvider,
+  EmbeddedCheckout,
+} from '@stripe/react-stripe-js';
+
+const stripePromise = loadStripe(
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY as string
+);
+
+export default function CheckoutPage() {
+  const searchParams = useSearchParams();
+
+  const bookingId = searchParams.get('bookingId');
+
+  const fetchClientSecret = useCallback(async () => {
+    // Create a Checkout Session
+    const response = await axios.post('/api/payment', {
+      bookingId: bookingId,
+    });
+    return response.data.clientSecret;
+  }, []);
+
+  const options = { fetchClientSecret };
+
+  return (
+    <div id='checkout'>
+      <EmbeddedCheckoutProvider stripe={stripePromise} options={options}>
+        <EmbeddedCheckout />
+      </EmbeddedCheckoutProvider>
+    </div>
+  );
+}
+```
+- Here we will have 2 separate API methods (POST and GET)
+- The POST method will handle the payment and the GET route handler will handle the redirect from stripe
+
+### API/Payment/Route.ts
+
+```js
+import Stripe from 'stripe';
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+import { type NextRequest, type NextResponse } from 'next/server';
+import db from '@/utils/db';
+import { formatDate } from '@/utils/format';
+export const POST = async (req: NextRequest, res: NextResponse) => {
+  const requestHeaders = new Headers(req.headers);
+  const origin = requestHeaders.get('origin');
+
+  const { bookingId } = await req.json();
+
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      property: {
+        select: {
+          name: true,
+          image: true,
+        },
+      },
+    },
+  });
+
+  if (!booking) {
+    return Response.json(null, {
+      status: 404,
+      statusText: 'Not Found',
+    });
+  }
+  const {
+    totalNights,
+    orderTotal,
+    checkIn,
+    checkOut,
+    property: { image, name },
+  } = booking;
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      ui_mode: 'embedded',
+      metadata: { bookingId: booking.id },
+      line_items: [
+        {
+          // Provide the exact Price ID (for example, pr_1234) of
+          // the product you want to sell
+          quantity: 1,
+          price_data: {
+            currency: 'usd',
+
+            product_data: {
+              name: `${name}`,
+              images: [image],
+              description: `Stay in this wonderful place for ${totalNights} nights, from ${formatDate(
+                checkIn
+              )} to ${formatDate(checkOut)}. Enjoy your stay!`,
+            },
+            unit_amount: orderTotal * 100,
+          },
+        },
+      ],
+      mode: 'payment',
+      return_url: `${origin}/api/confirm?session_id={CHECKOUT_SESSION_ID}`,
+    });
+
+    return Response.json({ clientSecret: session.client_secret });
+  } catch (error) {
+    console.log(error);
+
+    return Response.json(null, {
+      status: 500,
+      statusText: 'Internal Server Error',
+    });
+  }
+};
+```
+- In the above code, we create a stripe session and pass the reservation data as line items with the amount to be billed.
+- Notice, we also specify the return URL (this will be the Confirm Route)
+
+### API/Confirm/Route.ts
+
+```js
+import Stripe from 'stripe';
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+import { redirect } from 'next/navigation';
+
+import { type NextRequest, type NextResponse } from 'next/server';
+import db from '@/utils/db';
+
+export const GET = async (req: NextRequest) => {
+  const { searchParams } = new URL(req.url);
+  const session_id = searchParams.get('session_id') as string;
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+    // console.log(session);
+
+    const bookingId = session.metadata?.bookingId;
+    if (session.status === 'complete' && bookingId) {
+      await db.booking.update({
+        where: { id: bookingId },
+        data: { paymentStatus: true },
+      });
+    }
+  } catch (err) {
+    console.log(err);
+    return Response.json(null, {
+      status: 500,
+      statusText: 'Internal Server Error',
+    });
+  }
+  redirect('/bookings');
+};
+```
+- Notice in the above, once we are redirected from stripe, we get a sessionId
+- We can use this session Id to query stripe for the payment status
+- If the payment status is complete, then we can update our bookings table with payment status set to true.
+- Last step is to refactor all the bookings related GET methods to use the payment status as true as a condition to get the right data
 
 
 

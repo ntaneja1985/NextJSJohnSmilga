@@ -55,7 +55,7 @@ async function PropertyDetailsPage({params}:{params:{id:string}}) {
     const details = {baths,bedrooms,beds,guests};
     const firstName = property.profile.firstName;
     const profileImage = property.profile.profileImage;
-    console.log('Bookings = '+ property.bookings);
+    //console.log('Bookings = '+ property.bookings);
 
     return (
         <section>
